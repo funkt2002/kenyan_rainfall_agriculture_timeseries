@@ -1,0 +1,314 @@
+---
+title: "funk_thelonious_final_project"
+author: "Thelonious Funk"
+date: "2023-11-23"
+output: html_document
+---
+#### Step #1: Set global options and load packages
+```{r setup, include=TRUE, warning = FALSE, error = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+#loading in libraries
+library("tidyverse")                                                            #packages for cleaning and reading data
+library("here")
+library("janitor")
+library("readxl")
+library("tmap")                                                                 #package for creating map
+library("sf")                                                                   # package to read kenya shapefiles
+library("scales")                                                               #for comma seperating thousands
+```
+**Q1: What data are you using?**
+I am using timeseriesprecipitation data from different regions of Kenya spanning from 1980 to current. I am also using data that records the agriculutural and forestry yield of the nation as well as an economics indicators dataset.(different indicators span different years, but average 2005 to current) 
+
+**Q2: Where are the data from?** 
+The precipitation data is from UCSB CHIRPS! The agriculture/forestry and the economic indicator data is from the Kenya National Bereua of Statistics. 
+
+**Q3: Using these data, what research question(s) will you answer?**
+With this data, I want to compare the precipition of different regions, did sub saharan(semi-arid) regions consistently see less rainfall? I also want to overlay economic indicatiors/ agricultural yield to see the correlation between rainfall and wellbeing of the nation. Did years of drought harm different economic and agriculture indicators? If so, which ones and how much?
+
+**Q4: What figures will you make to answer the proposed research question?** 
+My first figure will be comparing rainfall of different regions of Sub saharan Kenya. On the X-axis, there will be years(each year broken into half a year to represent two rainy seasons), spanning from 1980 to 2023(time series length). The first y-axis will track rainfall in mm, with bars to represent rainfall per 1/2 year and points/connected lines to represent sum of each year. The second y axis- will also track rainfall in mm, but will be rainfall in mm / 2. Using this axis, there will be points to represent the total rainfall per year and lines to connect these points.  
+
+The second figure will overlay rainfall data of the Marsabit region with agricultural/forestry indicators(	Agriculture, forestry, value added (% of GDP).This figure will also have years on the x-axis, with timeseries dta from 1983 to 2023. There will be two y axis, left one representing total rainfall in mm and right one representing value added from forestry/agricultre(% of gdp).For this figure, we will again have bars representing rainfall, (one bar per year of rainfall this time), and points for each year representing % value added from agriculture/forestry. I would like to include another economic indicator as well with a different color set of points and linbes that is in the same unit of value added(% of gdp.)
+
+
+**Q5: What is the main point of each of your figures?**
+The first figure is meant to show and compare differences in rainfall of different regions. The second figure is meant to show the correlation or lack there of of agriculture/economic success and rainfall. 
+
+**Q6: Why did you choose the data that you chose? Why did you choose the topic that you choose?**
+I am fascinated by precipitation time series, and I think that drought in Eastern Africa, and elsewhere, is important to study. I also like the idea of using data published by UCSB research.
+
+**Q7: In what ways are you hoping this project challenges you?**
+I'm excited for the challenge of discovering what indicatiors are affected by rainfall and which are not. And also I am going to have to learn how to work with data formatted differently than what we have been used to, and also will have to learn how to compare data on one graph that has entirely different scales/units. (indicators in (idk) and rainfall in mm)
+
+
+
+#### Step #2: Import water use data; clean data
+```{r, include= TRUE, warning = FALSE, error = FALSE, echo = TRUE}
+
+marsabit_rain <- read.csv(here("/Users/theofunk/Desktop/Rprojects/final_project.Rproj/data/kenya_marsabit_monthly.csv")) %>%
+  clean_names() |>                                                             #make snake case
+  select(-period) |>                                                          # Remove 'period' column
+  map_dfc(~sum(., na.rm = TRUE))|>                                              #Iterates over each column, and sums up all of the
+                                                                                #all months, creating 1d vector
+  mutate(region = "Marsabit")                                                   #naming our region            
+
+kajiado_rain <- read.csv(here("/Users/theofunk/Desktop/Rprojects/final_project.Rproj/data/kenya+kajiado_monthly.csv"))|>
+  clean_names() |>                                                                 #converting column names to snake case
+  select(-period) |>                                                           # Remove 'period' column
+  map_dfc(~sum(., na.rm = TRUE))|>                                              #Iterates over each column, and sums up all of the
+                                                                                #all months, creating 1d vector
+  mutate(region = "Kajiado")                                                   #naming our region            
+                                   
+
+
+kakamega_rain <- read.csv(here("/Users/theofunk/Desktop/Rprojects/final_project.Rproj/data/kenya+kakamega_monthly.csv"))|>
+  clean_names()|>                                                                 #converting column names to snake case
+  select(-period) |>                                                           # Remove 'period' column
+  map_dfc(~sum(., na.rm = TRUE))|>                                              #Iterates over each column, and sums up all of the
+                                                                                #all months, creating 1d vector   
+  mutate(region = "Kakamega")                                                   #naming our region            
+
+
+
+world_dev_ind <- read.csv("/Users/theofunk/Desktop/Rprojects/final_project.Rproj/data/world_dev_indicator.csv",                                                                                                   #only reading after the first 4 columns(skip)
+  skip = 4)|>
+  clean_names()                                                                 #converting column names to snake case
+
+
+agri_forest_ind <- read.csv("/Users/theofunk/Desktop/Rprojects/final_project.Rproj/data/agri_forest_indicator.csv",                                                                                               #only reading after the first 4 columns(skip)
+  skip = 4)|>
+  clean_names()                                                                 #converting column names to snake case
+
+kenya_map <- st_read("/Users/theofunk/Desktop/Rprojects/final_project.Rproj/data/kenya_administrative_county_boundaries/kenya_administrative_county_boundaries.shp")                                              #st_read is a function used for reading a                                                                                         shapefile
+
+
+
+
+```
+
+####Step #3: Organize data for Plot 1: Combine rain data, pivot into plotable df, join rain and agriculutre GDP% data together
+```{r, include= TRUE, warning = FALSE, error = FALSE, echo = TRUE}
+# Combine the data
+combined_rain_data <- bind_rows(marsabit_rain, 
+                      kajiado_rain, kakamega_rain) |>                          #combine rain data for all of our regions
+  pivot_longer( 
+        cols = starts_with("x"),                                                #pivot longer using the 'years'(still start with                                                                                  x)
+        names_to = "year",                                                      #rename our pivot to have year and rainfall
+        values_to = "rainfall"
+    ) |>
+    mutate(
+        year = str_replace(year, "^x", ""),                                     # Remove the 'x' from the year
+        year = as.numeric(year), na.rm = TRUE)                                  #make years a numeric values, removes NAs
+
+ag_indicator <- agri_forest_ind %>%
+  filter(country_name == "Kenya") |>                                            #Only am focusing on Kenya data
+  pivot_longer( 
+        cols = starts_with("x"),                                                #pivot longer using the 'years'(still start with                                                                                  x)
+        names_to = "year",                                                      #rename our pivot to have year and valued added(%)
+        values_to = "value_added") |>
+    mutate(
+        year = str_replace(year, "^x", ""),                                     #get rid of x and make years numeric
+        year = as.numeric(year))
+
+rain_indicator <- left_join(ag_indicator, combined_rain_data,                   #joing ag value data with rain data
+  by = ("year" = "year")) |>
+  filter(year>=1981)|>                                                          #only observe years 1981 and on to match ag_indic 
+  mutate(scaled_value_added = value_added *6000)                                #multiply value add(0.2ish*6000) to match rainfall
+                                                                                #on our plot axis 
+
+
+```
+####Step #4 Plot 1: Timeseries Comparing %GDP added by Agriculture and yearly rainfall(mm) for three perimieter regions of Kenya
+```{r, include = TRUE, warning= FALSE, error = FALSE, echo = TRUE, fig.width = 18, fig.hieght =1}
+# Check the maximum values used in the scaling factor calculation
+max_rainfall <- max(rain_indicator$rainfall,                                    #finding max rainfall for scale
+                    na.rm = TRUE)
+max_value_added <- max(rain_indicator$value_added,                              #finding max value_added for scale
+                       na.rm = TRUE)
+scaling_factor <- (max(rain_indicator$rainfall,                                 #creating scaling factor to use on second axis 
+                       na.rm = TRUE) / max(rain_indicator$value_added,          # and ensure that all values fit on plot
+                                           na.rm = TRUE)) * 1.5
+
+# Apply the scaling
+rain_indicator <- rain_indicator %>%
+  mutate(scaled_value_added = value_added * scaling_factor)                     #updating scaled_value to fit with maxs on plot
+# Create the plot
+ggplot(data = rain_indicator, aes(x = year)) +                                  #reading rand and valueadded, year on x axis
+  geom_bar(aes(y = rainfall, fill = region), stat = "identity",                 #asking the bar height to be based on values
+           position = "stack", width = 0.8) +                                   #bars broken into how much each region adds
+  geom_point(aes(y = scaled_value_added), color = "black", size = 4) +          #value added uses scale to fit with axis
+  geom_line(aes(y = scaled_value_added, group = 1),                             #same deal with adding the lines
+            color = "black", size = 2) +                                        
+  scale_y_continuous(labels = label_comma(),                                    #adding commans for the thousands on y axis            
+    "Average Rainfall (mm)",                                                    #first axis is rainfall
+    sec.axis = sec_axis(~ . / scaling_factor,                                   #second axis divided by scaling to fit with rain
+                        name = "Agricultural Value Added (% of GDP)")
+  ) +
+  labs(
+    title = "Timeseries of Rainfall(mm) in Kenyan Counties vs. Yearly GDP(%) Added by Agriculture", 
+    x = "Year", 
+    y = "Rainfall",
+    fill = "Region"                                                             #ensuring that bars are filled/seperated
+  ) +                                                                           #by region
+  theme_minimal() +                                                             #minimalist
+  theme(
+    plot.title = element_text(size = 20, hjust = 0),                            # Adjust the size of the plot title
+    axis.title.x = element_text(size = 20),                                     # Adjust the size of the x-axis title
+    axis.title.y = element_text(size = 20),                                     # Adjust the size of the y-axis title
+    axis.text.x = element_text(size = 15),                                      #adjust axis text
+    axis.text.y = element_text(size = 15),
+    legend.text = element_text(size = 15),                                      #increase size of legend text
+    legend.title = element_text(size = 18),
+    plot.margin = margin(1, 1, 1, 6, "cm")                                      # Adjust margin for annotation
+  ) +
+  scale_fill_brewer(palette = "Pastel2") +                                      #creating pastel color pallete for graph
+  geom_vline(xintercept = c(2009, 2020, 2012),                                  #vertical lines for years with correlatin
+             linetype = "dashed", color = "blue", size = 1.5) +                 #sizing and makes lines dashed!
+  annotate("text", x = 1980, y = max_rainfall,                                  #adding an annotation over the year 1980, easier                                                                                  to read
+           label = "Years with blue lines show correlation\n between rainfall and value added",
+           hjust = 0, vjust = -0.5, size = 3.5)                                   # position out of bars                                                                                                            and below line 
+
+
+
+
+```
+**Q1: What is the take home message of this figure?**
+This figure is demonstrating the overarching decline of agricultural GDP value, and shows how in some years more or less rainfall can impact agriculture GDP value added. It also demonstrates the rainfall variability of different Kenyan regions. 
+
+**Q2: What is most (or least) surprising?**
+I am very surprised that there is not a much larger correlation between amount of rainfall and agricultural value added. I would expect to see more closely following trend line. 
+
+**Q3: What five new functions did you implement**
+The first new function I used was str_replace, which is used to replace one string character with another. For this, I used it in my year columns to get rid of x's before years before converting years to numeric. The second new function I used was map_dfc, which can be used for iterating over each column of a dataframe and applying a calculation. In this case, I summed up rain values broken into months for each year column of my rain data. The third new function I used plot.margin, which rather explanatorally, creates modifiable margins for my plot. The fourth new function was geom_vline, which adds vertical lines specified by x-axis values. I used this function to highlight years where there can be seen a correlation between GDP added by agriculture and rainfall. The fifth and final new function used by this figure was the annotate function, which adds text to your plot. I did so by specifying what x axis value it should start at, and then adjusted the height to fit nicely on the plot. 
+
+####Step #5: Organize data for Plot 2: organize shapefile for mapping, add together spatial and rain data, pivot data to be dissectable, and dissect data into three different objects, seperated by year for mapping. 
+```{r, include= TRUE, warning = FALSE, error = FALSE, echo = TRUE}
+regions <- kenya_map [kenya_map $adm1_en %in% c("Kajiado",
+                                                "Marsabit", "Kakamega" ),]      #picking the geometries of the three                                                                                              counties we have rainfall data for 
+
+combined_rain_data <- bind_rows(marsabit_rain, kajiado_rain, kakamega_rain)     #putting together rain data for three counties
+
+final_map_data <- left_join(regions,                                            #joining shapefile and rain datq by region
+                            combined_rain_data, by = c("adm1_en" = "region"))
+
+final_map_data_long <- final_map_data |>                                       #creating final plotable data
+    pivot_longer(
+        cols = starts_with("x"),                                                #picking the year columns
+        names_to = "year",                                                      #converting df to be years by rainfall
+        values_to = "rainfall"
+    ) |>
+    mutate(
+        year = str_replace(year, "^x", ""),                                     # Remove the 'x' from the year
+        year = as.numeric(year))                                                # Convert year to numeric
+        
+year_data_2020 <- final_map_data_long |>                                    #we create specific year data for each map(2020)
+  filter(year == "2020")|>
+  mutate(rainfall = round(as.numeric(rainfall)))                                # Round rainfall to whole numbers(for plot to be                                                                                  pretty)
+
+
+
+
+year_data_2021 <- final_map_data_long |>                                     #we create specific year data for each map(2021)
+  filter(year == "2021")|>
+  mutate(rainfall = round(as.numeric(rainfall)))                                # Round rainfall to whole numbers(for plot to be                                                                                  pretty)
+
+
+
+year_data_2022 <- final_map_data_long |>                                       #Create rainfall data specific for 2022
+  filter(year == "2022")|>                                                    #only for 2012
+  mutate(rainfall = round(as.numeric(rainfall)))                                # Round rainfall to whole numbers(for plot to be                                                                                  pretty)
+
+
+    
+
+
+```
+
+####Creating Plot #2: Three Tmaps showing rainfall in three regions of Kenya for three different years
+```{r, include= TRUE, warning = FALSE, error = FALSE, echo = TRUE}
+
+tmap_mode("plot")                                                               #proper mode so that tmap shows when knit
+map_2020 <- tm_shape(year_data_2020) +                                          #function used to make thematic map!
+      tm_borders(col = "black", lwd = 3) +                                      #emphasizing chosen region borders
+      tm_polygons("rainfall",                                                   #color value of each region based on rainfall
+                  title = "Rainfall (mm) in 2020",                              #title of single region
+                  id = "adm1_en",                                               #setting id of each region by its region name
+                  palette = "Blues",                                            #color
+                  border.col = "black",                                         #color of borders is black
+                  breaks = seq(200, 1000, length.out = 5)) +                    #creates scale bar 200-1000, into four categories
+      tm_text("adm1_en", size = 0.7, xmod = 0.5, ymod = -1, col = "black")+     #adding region name and moving it to be readable
+      tm_shape(year_data_2020)+                                                 #adding another 'layer' to add more text to region
+      tm_text("rainfall", size = 0.5, ymod = -1.5, xmod = .6, col = "black")+   #adding rainfall amount for each region to map
+      tm_shape(kenya_map) +                                                     #adding layer from shapefile to add other regions
+      tm_compass(type = "arrow", position = c("right", "bottom"), size = 1 ) +  #adding a north arrow and putting in bottom right
+      tm_scale_bar(position = c("left", "bottom")) +                            #ading a scale bar to the map
+      tm_borders(col = "grey", lwd = 0.5) +                                     #giving these regions grey border, less important
+      tm_layout(legend.position = c("left", "bottom"),                          #putting legend in the bottom left
+                legend.width = 0.35,                                            #adjusting legend size
+                legend.height = 0.35) +                                         #adjusting legend size
+      tm_view(set.view = c(lon = 37.9062, lat = 0.0236, zoom = 3))+             # adjusting the view of the entire map(shift left,                                                                                 zoom in or out)
+      tm_layout(title = "Kenyan Regional Rainfall(mm) Variance in 2020",        #giving first minimap a name!
+                title.size = 20)
+
+
+
+
+map_2021 <- tm_shape(year_data_2021) +                                          #function used to make thematic map!
+      tm_borders(col = "black", lwd = 3) +                                      #emphasizing chosen region borders
+      tm_polygons("rainfall",                                                   #color value of each region based on rainfall
+                  title = "Rainfall (mm) in 2021",                              #title of single region
+                  id = "adm1_en",                                               #setting id of each region by its region name
+                  palette = "Blues",                                            #color
+                  border.col = "black",                                         #color of borders is black
+                  breaks = seq(200, 1000, length.out = 5)) +                    #creates scale bar 200-1000, into four categories
+      tm_text("adm1_en", size = 0.7, xmod = 0.5, ymod = -1, col = "black")+     #adding region name and moving it to be readable
+      tm_shape(year_data_2021)+                                                 #adding another 'layer' to add more text to region
+      tm_text("rainfall", size = 0.5, ymod = -1.5, xmod = .6, col = "black")+   #adding rainfall amount for each region to map
+      tm_shape(kenya_map) +                                                     #adding layer from shapefile to add other regions
+      tm_compass(type = "arrow", position = c("right", "bottom"), size = 1 ) +  #adding a north arrow and putting in bottom right
+      tm_scale_bar(position = c("left", "bottom")) +                            #ading a scale bar to the map
+      tm_borders(col = "grey", lwd = 0.5) +                                     #giving these regions grey border, less important
+      tm_layout(legend.position = c("left", "bottom"),                          #putting legend in the bottom left
+                legend.width = 0.35,                                            #adjusting legend size
+                legend.height = 0.35) +                                         #adjusting legend size
+      tm_view(set.view = c(lon = 37.9062, lat = 0.0236, zoom = 3))+             # adjusting the view of the entire map(shift left,                                                                                 zoom in or out)
+      tm_layout(title = "Kenyan Regional Rainfall(mm) Variance in 2021",        #giving first minimap a name!
+
+
+map_2022 <- tm_shape(year_data_2022) +                                          #function used to make thematic map!
+      tm_borders(col = "black", lwd = 3) +                                      #emphasizing chosen region borders
+      tm_polygons("rainfall",                                                   #color value of each region based on rainfall
+                  title = "Rainfall (mm) in 2022",                              #title of single region
+                  id = "adm1_en",                                               #setting id of each region by its region name
+                  palette = "Blues",                                            #color
+                  border.col = "black",                                         #color of borders is black
+                  breaks = seq(200, 1000, length.out = 5)) +                    #creates scale bar 200-1000, into four categories
+      tm_text("adm1_en", size = 0.7, xmod = 0.5, ymod = -1, col = "black")+     #adding region name and moving it to be readable
+      tm_shape(year_data_2022)+                                                 #adding another 'layer' to add more text to region
+      tm_text("rainfall", size = 0.5, ymod = -1.5, xmod = .6, col = "black")+   #adding rainfall amount for each region to map
+      tm_shape(kenya_map) +                                                     #adding layer from shapefile to add other regions
+      tm_compass(type = "arrow", position = c("right", "bottom"), size = 1 ) +  #adding a north arrow and putting in bottom right
+      tm_scale_bar(position = c("left", "bottom")) +                            #ading a scale bar to the map
+      tm_borders(col = "grey", lwd = 0.5) +                                     #giving these regions grey border, less important
+      tm_layout(legend.position = c("left", "bottom"),                          #putting legend in the bottom left
+                legend.width = 0.35,                                            #adjusting legend size
+                legend.height = 0.35) +                                         #adjusting legend size
+      tm_view(set.view = c(lon = 37.9062, lat = 0.0236, zoom = 3))+             # adjusting the view of the entire map(shift left,                                                                                 zoom in or out)
+      tm_layout(title = "Kenyan Regional Rainfall(mm) Variance in 2022",        #giving first minimap a name!
+
+combined_maps <- tmap_arrange(map_2020, map_2021, map_2022, ncol = 3)           #setting each of our mini maps next to eachother                                                                                  for a cohesive demonstration of rainfall over                                                                                     three years
+
+ combined_maps                                                                  #calling our combined_maps to show up
+
+ 
+
+```
+
+**Q1: What is the take home message of this figure?**
+This plot serves as a spatial timeseries analysis, showing the variation in rainfall between years and between different regions within Kenya. 
+
+**Q2: What is most (or least) surprising?** I was very suprised by the variability in rainfall between regions. I would have expected them all to have similar amounts, but one region consistently gets 4-8 times more rain than another. 
+
+**Q3: What five new functions did you implement**
+I used many new functions here in organization and in plotting. The first was tm_shape, which is a tmap function designed for setting a ggplot to be a thematic map, and allows for the libraries functions to follow. The second new function was tm_borders, which creates borders in this map around our regions of interest and also around other kenyan borders.(Different sizes and colors for each). The third new function was tm_polygons, which reads the spatial data of polygons and multipolygons from our shapefile and uses it in the map. This function also serves as a fill function, filling specified polygons with specified data. The fourth new function was tm_compass, which can be used for adding a compass or in this case a north arrow to the map. The fifth new function I used was the tm_scalebar, which adds a scale bar to the map to denote distances. The sixth new function I used was tm_view, which can be used to control the lattitude and longitude of the map frame, as well as how zoomed in you are. Tmap_arrange was used here to combine all of the maps into one sort of plot, with each map acting as a 'column'. Another I used was st_read, which was used for reading in a shapefile.
+
